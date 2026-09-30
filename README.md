@@ -5,8 +5,7 @@
   <a href="#four-ideas-the-rest-of-this-follows-from">Four ideas</a> &middot;
   <a href="#usage">Usage</a> &middot;
   <a href="#it-monitors-the-rest-of-the-portfolio">Monitoring the portfolio</a> &middot;
-  <a href="#limits">Limits</a> &middot;
-  <a href="#problems-hit-while-building-this">Problems hit</a>
+  <a href="#limits">Limits</a> 
 </p>
 
 <p align="center">
@@ -233,52 +232,3 @@ same generator with no shift applied, so every alarm is false by construction.
 At n=150 the metric raises one **64% of the time**, and its worst draw reaches 0.3887 —
 past the *significant shift* threshold, not merely the moderate one. At n=500 it never
 fires. A PSI threshold on a low-traffic feature is a scheduled false alarm.
-
-## Problems hit while building this
-
-**The first alerting rule fired on a healthy service and missed a broken one.** A single
-global error rate is dominated by whatever has the most traffic: one feature failing
-100% of the time sat invisible inside a 2.4% aggregate. *Fixed* by evaluating every rule
-per feature as well as globally — and that gap is now a test, sized so the aggregate
-genuinely hides the failure.
-
-**Cache hits made the model look fast.** Including 2 ms cache hits in the latency
-percentiles pulled p95 down and hid the tail that users on a miss actually experience.
-*Fixed* by excluding cached calls from latency statistics while still counting them for
-hit rate.
-
-**`None` grounding was being averaged as zero.** A call that reports no grounding score
-is not a call scoring zero — one is "not applicable", the other is "completely
-ungrounded". Averaging them together made every non-RAG feature look like a
-hallucination problem. *Fixed* by averaging only over calls that reported a score, and
-returning `None` when none did.
-
-**A test expectation was wrong rather than the code.** 50 errors in 550 calls is a
-genuine 9% breach, so the "aggregate hides it" scenario had to be resized to 2000
-healthy calls. Recorded because the distinction between a failing test and failing code
-is worth keeping straight.
-
-**The demo reported drift between two windows drawn from an identical distribution.**
-Built the dashboard above with 150 calls per window, ticked nothing, and PSI still
-called a *moderate shift* in latency. Nothing was wrong with the PSI implementation:
-the cause is that cache hits make LLM latency **bimodal** — ~2 ms on a hit, hundreds on
-a miss — and PSI bins a bimodal metric badly at small n, so a few calls landing either
-side of the cache flips the score:
-
-A single draw is not evidence of this, so `demo.py` now measures the false-alarm rate
-over 300 trials per sample size, on windows that are identical by construction:
-
-```
-n=150   median psi 0.1168   worst 0.3887   false alarms 192/300  (64.0%)
-n=300   median psi 0.0553   worst 0.1545   false alarms  24/300  ( 8.0%)
-n=500   median psi 0.0327   worst 0.0914   false alarms   0/300  ( 0.0%)
-n=2000  median psi 0.0085   worst 0.0257   false alarms   0/300  ( 0.0%)
-```
-
-*Fixed* by generating 500 calls per window. Worth knowing before wiring a real alert to
-a PSI threshold on a low-traffic feature.
-
-**`fastapi`, `uvicorn`, `pydantic`, `rich` and `typer` were declared as core
-dependencies and imported nowhere**, alongside an empty `src/llmobs/api/` folder.
-Grepped `src/` and `tests/` for each before removing all five; the README title
-claimed that stack too, and now says what the code actually is.
